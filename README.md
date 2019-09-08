@@ -1,5 +1,9 @@
 # e_Simple3DView
-Simple 3D Viewer
+Simple 3D Object Viewer which allows you to modify just lighting & camera position.
+
+
+<img src="https://raw.githubusercontent.com/yamule/e_Simple3DView/master/docs/img/example_1.png" width="600px">
+
 
 A precompiled binary for windows is available from the release page.
 
