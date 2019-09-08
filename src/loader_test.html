@@ -1,0 +1,1484 @@
+
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>e_Simple3DView</title>
+<script src="./modules/three.js"></script>
+<script src="./modules/OBJLoader.js"></script>
+<script src="./modules/MTLLoader.js"></script>
+<script src="./modules/STLLoader.js"></script>
+<script>
+const fs = require('fs');
+const path = require('path');
+const ipcRenderer = require('electron').ipcRenderer;
+const dialog = require('electron').remote.dialog;
+ipcRenderer.on('load_files', (event, arg) => {
+	let filenames = dialog.showOpenDialog(null, {
+		properties: ['openFile','multiSelections'],
+		title: 'Load 3D object',
+		defaultPath: '.',
+		filters: [
+			{name: 'obj,mtl,stl', extensions: ['obj','mtl','stl']}
+		]
+	});
+	if(filenames){
+		loadFiles(filenames);
+	}else{
+		//console.log("none");
+	}
+});
+ipcRenderer.on('clear_objects', (event, arg) => {processCommand("func:clear_all_models;");});
+
+
+
+
+
+
+var SCREEN_WIDTH  = 800;
+var SCREEN_HEIGHT = 500;
+var IMAGE_PATTERN_NONE=0;
+var IMAGE_PATTERN_TILE=1;
+var IMAGE_PATTERN_EXPAND=2;
+var IMAGE_PATTERN_CENTER=3;
+var mousedown = false;
+var ofiles = [
+];
+var mfiles = [
+];
+
+var mousePrev;
+var renderer = new THREE.WebGLRenderer();
+var firstFlag = true;
+var scene    = new THREE.Scene();
+var targetMesh;
+var frameInterval;
+var lights = new Array();
+var camera;
+var imageList = new Array();
+var screenPressed = false;;
+var rotateX = 0;
+var rotateY = 0;
+var cameraStartPos = {x:0,y:0,z:500};
+var centerPos = {x:0,y:0,z:0};
+var mouseMoveLen = 0;
+var fileLoaded = {};
+var id_to_obj = {};
+var id_current = {};
+var file_to_id = {};
+var objectList = [];
+var loadingFiles = [];
+var boundingBoxes = [];
+var raycaster = new THREE.Raycaster();
+var prevFocus = -1;
+var camera_prim_position = {};
+var loadTimer;
+var boxTimer;
+var ambientLights = new Array();
+var pointLight_preview = new  THREE.PointLight( 0xFFFFFF, 5.0,100);
+var directionalLight_preview = new  THREE.DirectionalLight( 0xFFFFFF,0.5);
+var spotLight_preview = new  THREE.SpotLight( 0xFFFFFF,0.5);
+var screen_div;
+var ambientIntensity = 0.7;
+
+
+var spotlight_target_geometry = new THREE.BoxGeometry( 1, 1, 1 );
+var spotlight_target_material = new THREE.MeshBasicMaterial( {color: 0x00ff00} );
+var spotlight_target_cube = new THREE.Mesh( spotlight_target_geometry, spotlight_target_material );
+
+var ex_pointLights = new Object();
+var ex_directionalLights = new Object();
+var ex_spotLights = new Object();
+var ex_spotLights_target = new Object();
+
+var excount = 0;
+var sphere;
+
+var shadow_mapSize = 4096;
+var shadow_cameraNear = 0.5;   
+var shadow_cameraFar = 500;   
+var sid = 0;
+
+var centerPos_orig = {};
+var cameraPos_orig = {};
+
+function getMTLPath(objfile){
+	let data = fs.readFileSync(objfile, 'utf8').toString().split(/[\r\n]+/);
+	for(let ii = 0;ii < data.length;ii++){
+		if(data[ii].match(/mtllib[\s]+(.+)$/)){
+			let mbasedir = path.dirname(objfile);
+			return RegExp.$1;
+		}
+	}
+	return "";
+}
+function resourceIsAbsolute(mtlfile){
+	let data = fs.readFileSync(mtlfile, 'utf8').toString().split(/[\r\n]+/);
+	for(let ii = 0;ii < data.length;ii++){
+		if(data[ii].match(/map_[^\s]+[\s]+(.+)$/)){
+			let fname = RegExp.$1;
+			if(path.isAbsolute(fname)){
+				return true;
+			}else{
+				return false;
+			}
+		}
+	}
+	return false;
+}
+
+function loadFiles(filelist){
+	let obj = null;
+	let mtl = null;
+	let stl = null;
+	if(filelist.length > 2){
+		alert("One STL or OBJ or OBJ+MTL are acceptable.");
+	}else{
+		
+		for(let tii = 0;tii < filelist.length;tii++){
+			if(filelist[tii].match(/[;,]/)){
+				alert("; , are not allowed as file path. \n"+filelist[tii]);
+				continue;
+			}
+			if(filelist[tii].match(/\.([^.]+)$/)){
+				let ext = RegExp.$1.toLowerCase();
+				if(ext === "obj"){
+					obj = filelist[tii];
+				}else if (ext === "mtl"){
+					mtl = filelist[tii];
+				}else if(ext === "stl"){
+					stl = filelist[tii];
+				}else{
+					alert("Unrecognized extension : "+ext);
+				}
+			}
+		}
+
+		if(obj != null && mtl == null){
+			mtl = getMTLPath(obj);
+			if(!path.isAbsolute(mtl)){
+				let mbasedir = path.dirname(obj);
+				mtl = mbasedir+"/"+mtl;
+			}
+			console.log(mtl);
+		}
+		
+		if(obj != null){
+			//let mbasedir = path.dirname(mtl);
+			//let mfilename = path.basename(mtl);
+			//let obasedir = path.dirname(obj);
+			//let ofilename = path.basename(obj);
+			//processCommand("func:load_polygons;params:obj:"+ofilename+",mtl:"+mfilename+",obj_basedir:"+obasedir+",mtl_basedir:"+mbasedir+";");
+			processCommand("func:load_polygons;params:obj:"+obj+",mtl:"+mtl+";");
+		}
+		if(stl != null){
+			processCommand("func:load_polygons;params:stl:"+stl+";");
+		}
+	}
+}
+function initPage(){
+	document.ondragover = document.ondrop = function(e) {
+      e.preventDefault(); 
+      return false;
+	};
+	document.body.addEventListener('drop', function (e) {
+	//console.log('file dropped:', e.dataTransfer.files[0]);
+		let filepathlist = [];
+		for(let ii = 0;ii < e.dataTransfer.files.length;ii++){
+			filepathlist.push(e.dataTransfer.files[ii].path);
+		}
+		loadFiles(filepathlist);
+	});
+
+	
+	scene.add(pointLight_preview);
+	scene.add(directionalLight_preview);
+	scene.add(spotLight_preview);
+	
+	if(window.innerWidth){
+		SCREEN_WIDTH = window.innerWidth-10;
+		SCREEN_HEIGHT = window.innerHeight-40;
+
+	}
+	document.getElementById("screen_width_text").value = SCREEN_WIDTH;
+	document.getElementById("screen_height_text").value = SCREEN_HEIGHT;
+	renderer.setSize(SCREEN_WIDTH,SCREEN_HEIGHT);
+	renderer.setClearColor(0xffffff, 1);
+	
+	renderer.shadowMap.enabled = true;
+	renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	screen_div = document.getElementById("div1");
+	screen_div.appendChild(renderer.domElement);
+	
+	renderer.domElement.style="margin:0px;padding:0px;";
+	camera = new THREE.PerspectiveCamera(30,SCREEN_WIDTH/SCREEN_HEIGHT, 0.1, -1000 );
+	camera_prim_position.x= 0;
+	camera_prim_position.y= 0;
+	camera_prim_position.z= 100;
+	
+	camera.lookAt(new THREE.Vector3(0, 0, 0));
+	scene.add(camera);
+	ambientLight = new THREE.AmbientLight(0xFFFFFF);
+	ambientLight.intensity = ambientIntensity;
+	scene.add(ambientLight);
+	
+	screen_div.addEventListener('DOMMouseScroll', wheel, false);
+	screen_div.onmousewheel = wheel;
+	
+	
+	//scene.fog = new THREE.FogExp2(0x000000,  0.005);
+	//scene.fog = new THREE.Fog(0x000000,0,1600);
+	
+	screen_div.addEventListener('mousedown', function(e){
+		e.preventDefault();
+		screenPressed = true;
+		mousePrev = {x: e.pageX, y: e.pageY};
+		mouseMoveLen = 0;
+	}, false);
+	
+	
+    sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(10, 20, 20), // geometry 形状
+      new THREE.MeshLambertMaterial({color: 0x500000}) // material 材質、色
+    );
+    //sphere.position.set(0, 0, 0);//位置確認用
+    //scene.add(sphere);
+    
+	
+	renderer.domElement.addEventListener('mouseup', function(e){
+		e.preventDefault();
+		if(!screenPressed){
+			return;
+		}
+		if(mouseMoveLen > 10){
+			mouseMoveLen = 0;
+			return;
+		}
+		
+	},false);
+	
+	
+	
+	
+	screen_div.addEventListener('mousemove', function(e){
+	
+		if (!e) {
+			e = window.event;
+		}
+		e.preventDefault();
+		if(!screenPressed){
+			return;
+		}
+		mouseRotate = true;
+		var distx = mousePrev.x-e.pageX;
+		var disty = mousePrev.y-e.pageY;
+		mouseMoveLen += Math.abs(distx) + Math.abs(disty);
+		
+		
+		if(!e.shiftKey){
+			var degree = 0.5;
+			var rotx = -1.0*distx/SCREEN_WIDTH*5;
+			var roty = -1.0*disty/SCREEN_HEIGHT*5;
+			
+			rotateX += rotx;
+			rotateY += roty;
+			if(rotateY > 1.54){
+				rotateY = 1.54;
+			}
+			if(rotateY < -1.54){
+				rotateY = -1.54;
+			}
+			cameraRotate(rotateX,rotateY);
+		}else{
+			//カメラの平行移動
+			//確かカメラの角度とかを取って X、Y 座標の移動がいくつだと World 座標で各方向どれだけの移動量となるかと計算してたと思う。忘れた。
+			//CenterPoint を中心とする球体の上をカメラは移動する。カメラは LookAt 関数を使用して常に CenterPoint の方向を向く。
+			//平行移動では CenterPoint が移動する。
+			
+			let pvc = toScreenXY(new THREE.Vector3(0,0,0),camera);
+			let pvx = toScreenXY(new THREE.Vector3(1,0,0),camera);
+			let pvy = toScreenXY(new THREE.Vector3(0,1,0),camera);
+			let pvz = toScreenXY(new THREE.Vector3(0,0,1),camera);
+			
+			let dx = pvx.x-pvc.x;
+			let dy = pvy.x-pvc.x;
+			let dz = pvz.x-pvc.x;
+			
+			
+			//X 座標移動分計算
+			if(e.ctrlKey){
+				centerPos.x += dx*distx;
+				centerPos.y += dy*distx;
+				centerPos.z += dz*distx;
+				
+				
+				
+			}else{
+				centerPos.x += dx*distx*0.1;
+				centerPos.y += dy*distx*0.1;
+				centerPos.z += dz*distx*0.1;
+			}
+			
+			//Y 座標移動分計算
+			let ddx = pvx.y-pvc.y;
+			let ddy = pvy.y-pvc.y;
+			let ddz = pvz.y-pvc.y;
+			
+			if(e.ctrlKey){
+				centerPos.x += -ddx*disty;
+				centerPos.y += -ddy*disty;
+				centerPos.z += -ddz*disty;
+				
+			}else{
+				centerPos.x += -ddx*disty*0.1;
+				centerPos.y += -ddy*disty*0.1;
+				centerPos.z += -ddz*disty*0.1;
+			}
+			
+			setCameraPosition(camera_prim_position.x,camera_prim_position.y,camera_prim_position.z);
+			
+		}
+		mousePrev = {x: e.pageX, y: e.pageY};
+	}, true);
+
+	screen_div.addEventListener('mouseup', function(e){
+		screenPressed = false;
+	}, false);
+	
+	function render(){
+		renderer.render(scene, camera);
+	}
+	//clearInterval(frameInterval);
+	frameInterval = setInterval(render, 1000 / 30);
+	loadTimer = setInterval(checkLoading,500);
+	
+	//setInterval(testtest,300);
+	
+	
+	
+	pointLight_preview.shadow.mapSize.width = shadow_mapSize; 
+	pointLight_preview.shadow.mapSize.height = shadow_mapSize; 
+	pointLight_preview.shadow.camera.near = shadow_cameraNear;
+	pointLight_preview.shadow.camera.far = shadow_cameraFar;
+	
+	directionalLight_preview.shadow.mapSize.width = shadow_mapSize; 
+	directionalLight_preview.shadow.mapSize.height = shadow_mapSize; 
+	directionalLight_preview.shadow.camera.near = shadow_cameraNear;
+	directionalLight_preview.shadow.camera.far = shadow_cameraFar;
+	
+	spotLight_preview.shadow.mapSize.width = shadow_mapSize; 
+	spotLight_preview.shadow.mapSize.height = shadow_mapSize; 
+	spotLight_preview.shadow.camera.near = shadow_cameraNear;
+	spotLight_preview.shadow.camera.far = shadow_cameraFar;
+	
+	
+	spotlight_target_cube.visible= false;
+	scene.add(spotlight_target_cube);
+	
+	checkLights();
+}
+
+
+function toScreenXY ( position, camera ) {
+	let jqdiv = 0;
+//modified from https://github.com/mrdoob/three.js/issues/78
+    var pos = position.clone();
+    projScreenMat = new THREE.Matrix4();
+    projScreenMat.multiply( camera.projectionMatrix);
+    projScreenMat.multiply( camera.matrixWorldInverse );
+	pos.applyMatrix4(projScreenMat);
+    return pos;
+
+}
+
+
+function processCommandInTextArea(){
+	let parts = document.getElementById("commandtexts").value.split("[\\r\\n]+");
+	for(let ii = 0;ii < parts.length;ii++){
+		if(parts[ii].length > 0){
+			processCommand(parts[ii]);
+		}
+	}
+
+}
+
+
+function addBoxHelper(objects,col){
+	for(var ii = 0;ii < boundingBoxes.length;ii++){
+		scene.remove(boundingBoxes[ii]);
+	}
+	boundingBoxes = [];
+	var helper = new THREE.BoundingBoxHelper(objects, col);
+	helper.update();
+	scene.add(helper);
+	boundingBoxes.push(helper);
+	if(boxTimer != null){
+		clearTimeout(boxTimer);
+	}
+	boxTimer = setInterval(checkBoxTimer,10000);
+}
+function focus(num){
+	if(prevFocus > -1){
+		if(prevFocus%2 == 0){
+			document.getElementById("desc"+prevFocus).style.backgroundColor="#CCCCFF";
+			
+		}else{
+			document.getElementById("desc"+prevFocus).style.backgroundColor="white";
+		}
+	}
+//	if(id_to_obj[num]  != null){
+//		addBoxHelper(id_to_obj[num],0xff0000);
+//	}
+	document.getElementById("desc"+num).style.backgroundColor="#FFCCFF";
+	document.getElementById("ftext"+num).focus();
+	//document.getElementById("messagediv").innerHTML = document.getElementById("desc"+num).innerText+" was clicked.";
+	
+	prevFocus = num;
+};
+
+
+function loadPolygons(ofile,mfile){
+	if(ofile in fileLoaded){
+		return;
+	}
+	fileLoaded[ofile] = "loading";
+	file_to_id[ofile] = sid++;
+	
+	var onProgress = function ( xhr ) {
+		if ( xhr.lengthComputable ) {
+			var lp = xhr.loaded / xhr.total * 100;
+			document.getElementById("messagediv").innerHTML = "Loaded "+lp+"%";
+		}
+	};
+	var onError = function ( xhr ) { 
+	console.log("error loading obj file.");
+	flagAll();};
+	
+	var mtlLoader = new THREE.MTLLoader();
+	
+	//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
+	mfile = mfile.replace(/\\/g,"/");
+	//console.log(mfile);
+	if(resourceIsAbsolute(mfile)){
+		mtlLoader.setResourcePath("");
+		mtlLoader.setPath("");
+	}
+	
+	//http://threejs.org/examples/webgl_loader_obj.html
+	mtlLoader.load( mfile, function( materials ) {
+		materials.preload();
+		let objLoader = new THREE.OBJLoader();
+		objLoader.setMaterials( materials );
+		objLoader.load( ofile, function ( objects ) {
+			scene.add( objects );
+			if(id_to_obj[file_to_id[ofile]] != null){
+				hideModel(file_to_id[ofile]);
+			}
+			id_to_obj[file_to_id[ofile]] = objects;
+			
+			fileLoaded[ofile] = "loaded";
+			
+			targetMesh = objects;
+			
+			objects.castShadow = true;
+			objects.receiveShadow = true;
+			for(let ii = 0;ii < objects.children.length;ii++){
+				objects.children[ii].receiveShadow = true;
+				objects.children[ii].castShadow = true;
+			}
+			
+			
+			//addBoxHelper(objects,0x00ff00);
+			//if(firstFlag){
+				setCenter(file_to_id[ofile]);
+			//}
+			
+			document.getElementById("messagediv").innerHTML = "Loaded";
+		}, onProgress, onError );
+	});
+}
+function clearAllModels(){
+	for(ii in id_to_obj){
+		scene.remove(id_to_obj[ii]);
+	}
+	file_to_id = {};
+	id_to_obj = {};
+	fileLoaded = {};
+	
+}
+function loadSTL(stlfile){
+	if(stlfile in fileLoaded){
+		return;
+	}
+	file_to_id[stlfile] = sid++;
+	
+	fileLoaded[stlfile] = "loading";
+	var onProgress = function ( xhr ) {
+		if ( xhr.lengthComputable ) {
+			var lp = xhr.loaded / xhr.total * 100;
+			document.getElementById("messagediv").innerHTML = "Loaded "+lp+"%";
+		}
+	};
+	var onError = function ( xhr ) { 
+	console.log("error loading stl file.");
+	console.log(xhr);
+	flagAll();};
+	
+	
+	var stlloader = new THREE.STLLoader();
+	stlloader.load( 
+		stlfile, function ( objects ) {
+			let mat = new THREE.MeshLambertMaterial( { ambient: 0xffffff, color: 0xffffff} );
+		    let mesh = new THREE.Mesh( objects, mat );  
+			scene.add( mesh );
+			if(id_to_obj[file_to_id[stlfile]] != null){
+				hideModel(file_to_id[stlfile]);
+			}
+			id_to_obj[file_to_id[stlfile]] = mesh;
+			fileLoaded[stlfile] = "loaded";
+			mesh = mesh;
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			setCenter(file_to_id[stlfile]);
+			document.getElementById("messagediv").innerHTML = "Loaded";
+		}, onProgress, onError 
+	);
+}
+
+function addDirectionalLight(){
+	let comm = "";
+	let paramm = "";
+	let pret = validateDirectionalLight();
+	
+	paramm = "intensity:"+String(pret.i)
+	+",";
+	if(pret.shadow){
+		paramm += "shadow:ON,";
+	}else{
+		paramm += "shadow:OFF,";
+	}
+	
+	paramm += "x:"+String(directionalLight_preview.position.x)
+	+",y:"+String(directionalLight_preview.position.y)
+	+",z:"+String(directionalLight_preview.position.z)+",";
+	
+	comm = "func:add_directional_light;"+"params:"+paramm;
+	document.getElementById("d_preview").checked = false;
+	processCommand(comm);
+}
+
+
+function parseStringToFloatString(str){
+	let ret = parseFloat(str);
+	if(isNaN(ret)){
+		return "";
+	}
+	//console.log(str+"->"+ret);
+	return String(ret);
+}
+
+
+function addPointLight(){
+	let comm = "";
+	let paramm = "";
+	let pret = validatePointLight();
+	
+	paramm = "intensity:"+String(pret.i)
+	+",distance:"
+	+String(pret.d)
+	+",decay:"
+	+String(pret.c)+",";
+	
+	
+	
+	if(pret.shadow){
+		paramm += "shadow:ON,";
+	}else{
+		paramm += "shadow:OFF,";
+	}
+	
+	paramm += "x:"+String(pointLight_preview.position.x)
+	+",y:"+String(pointLight_preview.position.y)
+	+",z:"+String(pointLight_preview.position.z)+",";
+	
+	comm = "func:add_point_light;"+"params:"+paramm;
+	document.getElementById("p_preview").checked = false;
+	processCommand(comm);
+}
+
+
+
+function addSpotLight(){
+	let comm = "";
+	let paramm = "";
+	let pret = validateSpotLight();
+	
+	paramm = "intensity:"+String(pret.i)
+	+",distance:"
+	+String(pret.d)
+	+",decay:"
+	+String(pret.c)+",";
+	
+	
+	
+	if(pret.shadow){
+		paramm += "shadow:ON,";
+	}else{
+		paramm += "shadow:OFF,";
+	}
+	
+	paramm += "x:"+String(pointLight_preview.position.x)
+	+",y:"+String(pointLight_preview.position.y)
+	+",z:"+String(pointLight_preview.position.z)+",";
+	
+	paramm += "tx:"+String(spotlight_target_cube.position.x)
+	+",ty:"+String(spotlight_target_cube.position.y)
+	+",tz:"+String(spotlight_target_cube.position.z)+",";
+	
+	comm = "func:add_spot_light;"+"params:"+paramm;
+	document.getElementById("s_preview").checked = false;
+	processCommand(comm);
+}
+
+
+
+function processCommand(str){
+	console.log(str);
+	let parts = str.split(";");
+	let valmap = new Array();
+	for(var pp = 0;pp < parts.length;pp++){
+		if(parts[pp].match(/([^\:]+)\:(.+)/)){
+			valmap[RegExp.$1] = RegExp.$2;
+		}
+	}
+	//console.log(str);
+	//console.log(valmap);
+	let paramvalmap = new Array();
+	if(valmap["params"]){
+		let pparts = valmap["params"].split(",");
+		for(var pp = 0;pp < pparts.length;pp++){
+			if(pparts[pp].match(/^([^:]+):(.+)/)){
+				paramvalmap[RegExp.$1] = RegExp.$2;
+			}
+		}
+	}
+	if(valmap["func"]){
+		switch(valmap["func"]){
+			case "load_polygons":
+				if("obj" in paramvalmap){
+					loadPolygons(paramvalmap["obj"],paramvalmap["mtl"]);
+				}else if("stl" in paramvalmap){
+					loadSTL(paramvalmap["stl"]);
+				}else{
+					console.log(stl);
+					console.log("command should have obj or stl.");
+					console.log(paramvalmap);
+					alert("?? please check console.");
+				}
+			break;
+			
+			case "brighten_ambient_light":
+				ambientLight.intensity += 0.2;
+			break;
+			
+			case "darken_ambient_light":
+				ambientLight.intensity -= 0.2;
+				if(ambientLight.intensity < 0.0){
+					ambientLight.intensity = 0.0;
+				}
+			break;
+			case "set_screen_size":
+				SCREEN_WIDTH = parseInt(paramvalmap["width"]);
+				SCREEN_HEIGHT = parseInt(paramvalmap["height"]);
+				renderer.setSize(SCREEN_WIDTH,SCREEN_HEIGHT);
+				camera.aspect = SCREEN_WIDTH/(1.0*SCREEN_HEIGHT);
+				camera.updateProjectionMatrix();
+			break;
+			
+			case "remove_point_light":
+				{
+					let pid = paramvalmap["id"];
+					let ele = document.getElementById("ex"+pid);
+					ele.parentNode.removeChild(ele);
+					scene.remove(ex_pointLights[pid]);
+					delete(ex_pointLights[pid]);
+					
+				}
+			break;
+			
+			case "remove_spot_light":
+				{
+					let pid = paramvalmap["id"];
+					let ele = document.getElementById("ex"+pid);
+					ele.parentNode.removeChild(ele);
+					scene.remove(ex_spotLights[pid]);
+					scene.remove(ex_spotLights_target[pid]);
+					delete(ex_spotLights[pid]);
+					delete(ex_spotLights_target[pid]);
+					
+				}
+			break;
+			
+			case "remove_directional_light":
+				{
+					let pid = paramvalmap["id"];
+					let ele = document.getElementById("ex"+pid);
+					ele.parentNode.removeChild(ele);
+					scene.remove(ex_directionalLights[pid]);
+					//console.log(ex_directionalLights);ここで表示させても表示する頃にはオブジェクトは消えているので中身を見ることはできない。
+					delete(ex_directionalLights[pid]);
+					//console.log(ex_directionalLights);
+				
+				}
+				
+			break;
+			case "clear_all_models":
+				clearAllModels();
+			break;
+			case "add_point_light":
+				//PointLight( color : Integer, intensity : Float, distance : Number, decay : Float )
+				
+				{
+				let pp = new THREE.PointLight( 0xFFFFFF, 
+				parseFloat(paramvalmap["intensity"]),
+				parseFloat(paramvalmap["distance"]),
+				parseFloat(paramvalmap["decay"]));
+				
+				pp.position.set(parseFloat(paramvalmap["x"])
+				,parseFloat(paramvalmap["y"]),
+				parseFloat(paramvalmap["z"]));
+				
+				let vid = String(excount++);
+				ex_pointLights[vid] = pp;
+				
+				if(paramvalmap["shadow"] == "ON"){
+					pp.castShadow = true;
+					
+					pp.shadow.mapSize.width = shadow_mapSize; 
+					pp.shadow.mapSize.height = shadow_mapSize; 
+					pp.shadow.camera.near = shadow_cameraNear;   
+					pp.shadow.camera.far = shadow_cameraFar;     
+				
+				}
+				//console.log(pp);
+				let dh = document.getElementById("extra_pointlight").innerHTML;
+				document.getElementById("extra_pointlight").innerHTML = dh+" <input type=\"button\" id=\"ex"+vid+"\" value=\"remove\" onclick='processCommand(\"func:remove_point_light;params:id:"+vid+";\");'/>";
+				scene.add(pp);
+				}
+			break;
+			
+			case "add_spot_light":
+				//PointLight( color : Integer, intensity : Float, distance : Number, decay : Float )
+				
+				{
+				let pp = new THREE.SpotLight( 0xFFFFFF, 
+				parseFloat(paramvalmap["intensity"]));
+				
+				pp.distance = parseFloat(paramvalmap["distance"]);
+				pp.decay = parseFloat(paramvalmap["decay"]);
+				var oo = new THREE.Object3D();
+				oo.position.x = parseFloat(paramvalmap["tx"]);
+				oo.position.y = parseFloat(paramvalmap["ty"]);
+				oo.position.z = parseFloat(paramvalmap["tz"]);
+				
+				
+				pp.position.set(parseFloat(paramvalmap["x"])
+				,parseFloat(paramvalmap["y"]),
+				parseFloat(paramvalmap["z"]));
+				
+				let vid = String(excount++);
+				
+				
+				
+				
+				ex_spotLights_target[vid] = oo;
+				ex_spotLights[vid] = pp;
+				if(paramvalmap["shadow"] == "ON"){
+					pp.castShadow = true;
+					
+					pp.shadow.mapSize.width = shadow_mapSize; 
+					pp.shadow.mapSize.height = shadow_mapSize; 
+					pp.shadow.camera.near = shadow_cameraNear;   
+					pp.shadow.camera.far = shadow_cameraFar;     
+				
+				}
+				//console.log(pp);
+				let dh = document.getElementById("extra_spotlight").innerHTML;
+				document.getElementById("extra_spotlight").innerHTML = dh+" <input type=\"button\" id=\"ex"+vid+"\" value=\"remove\" onclick='processCommand(\"func:remove_spot_light;params:id:"+vid+";\");'/>";
+				scene.add(pp);
+				scene.add(oo);
+				}
+			break;
+			
+			
+			
+			case "add_directional_light":
+				{
+				let pp = new THREE.DirectionalLight( 0xFFFFFF, 
+				parseFloat(paramvalmap["intensity"]));
+				
+				pp.position.set(parseFloat(paramvalmap["x"])
+				,parseFloat(paramvalmap["y"]),
+				parseFloat(paramvalmap["z"]));
+				
+				let vid = String(excount++);
+				ex_directionalLights[vid] = pp;
+				
+				//console.log(ex_directionalLights);
+				if(paramvalmap["shadow"] == "ON"){
+					pp.castShadow = true;
+					
+					pp.shadow.mapSize.width = d_mapSize; 
+					pp.shadow.mapSize.height = d_mapSize; 
+					pp.shadow.camera.near = d_cameraNear;   
+					pp.shadow.camera.far = d_cameraFar;     
+				
+				}
+				//console.log(pp);
+				let dh = document.getElementById("extra_directionallight").innerHTML;
+				document.getElementById("extra_directionallight").innerHTML = dh+" <input type=\"button\" id=\"ex"+vid+"\" value=\"remove\" onclick='processCommand(\"func:remove_directional_light;params:id:"+vid+";\");'/>";
+				scene.add(pp);
+				}
+			break;
+			
+			
+			
+			
+			default:
+			console.log("^ Command was not processed.");
+			break;
+		
+		}
+	}
+	checkLights();
+}
+
+function validatePointLight(){
+	let sw = document.getElementById("p_shadowswitch");
+	let i = parseStringToFloatString(document.getElementById("p_intensity").value);
+	let d = parseStringToFloatString(document.getElementById("p_distance").value);
+	let c = parseStringToFloatString(document.getElementById("p_decay").value);
+	if(i.length == 0){
+		i = "1";
+	}
+	if(d.length == 0){
+		d = "100";
+	}
+	if(c.length == 0){
+		c = "1";
+	}
+	document.getElementById("p_intensity").value = i;
+	document.getElementById("p_distance").value = d;
+	document.getElementById("p_decay").value = c;
+	
+	pointLight_preview.intensity = parseFloat(i);
+	pointLight_preview.distance = parseFloat(d);
+	pointLight_preview.decay = parseFloat(c);
+	pointLight_preview.castShadow = (sw.options[sw.selectedIndex].value == "ON");
+	return {i:pointLight_preview.intensity
+	,d:pointLight_preview.distance
+	,c:pointLight_preview.decay
+	,shadow:pointLight_preview.castShadow};
+}
+
+
+function validateScreenSize(){
+	let ww = document.getElementById("screen_width_text").value.replace(/[^0-9\.]/g, '');
+	if(ww.length == 0){
+		ww = "50";
+	}
+	let hh = document.getElementById("screen_height_text").value.replace(/[^0-9\.]/g, '');
+	if(hh.length == 0){
+		hh = "50";
+	}
+	if(parseInt(ww) < 50){
+		ww = "50";
+	}
+	if(parseInt(hh) < 50){
+		hh = "50";
+	}
+	document.getElementById("screen_width_text").value = ww;
+	document.getElementById("screen_height_text").value = hh;
+}
+function validateDirectionalLight(){
+	let i = document.getElementById("d_intensity").value.replace(/[^0-9\.]/g, '');
+	if(i.length == 0){
+		i = "1";
+	}
+	document.getElementById("d_intensity").value = i;
+	directionalLight_preview.intensity = i;
+	
+	//directionalLight の shadow が上手く動かない
+	//let sw = document.getElementById("d_shadowswitch");
+	//directionalLight_preview.castShadow = (sw.options[sw.selectedIndex].value == "ON");
+	
+	//もし入れる場合こんな感じで設定しておく
+	//shadow:  <select id="d_shadowswitch">
+	//<option value="ON">ON</option>
+	//<option value="OFF">OFF</option>
+	//
+	//</select> 
+	
+	return {i:i,shadow:false};
+}
+function validateSpotLight(){
+
+	let sw = document.getElementById("s_shadowswitch");
+	let i = parseStringToFloatString(document.getElementById("s_intensity").value);
+	let d = parseStringToFloatString(document.getElementById("s_distance").value);
+	let c = parseStringToFloatString(document.getElementById("s_decay").value);
+	if(i.length == 0){
+		i = "1";
+	}
+	if(d.length == 0){
+		d = "0";
+	}
+	if(c.length == 0){
+		c = "1";
+	}
+	document.getElementById("s_intensity").value = i;
+	document.getElementById("s_distance").value = d;
+	document.getElementById("s_decay").value = c;
+	
+	
+	
+//intensity - (optional) numeric value of the light's strength/intensity. Default is 1.
+//distance - Maximum range of the light. Default is 0 (no limit).
+//angle - Maximum angle of light dispersion from its direction whose upper bound is Math.PI/2.
+//penumbra - Percent of the spotlight cone that is attenuated due to penumbra. Takes values between zero and 1. Default is zero.//外に行くほど暗くなるということか？
+//decay - The amount the light dims along the distance of the light.
+	
+	
+	
+	
+	spotLight_preview.intensity = parseFloat(i);
+	spotLight_preview.distance = parseFloat(d);
+	//console.log(spotLight_preview.distance);
+	//spotLight_preview.angle =  Math.PI/2;
+	spotLight_preview.decay = parseFloat(c);
+	
+	spotLight_preview.castShadow = (sw.options[sw.selectedIndex].value == "ON");
+	return {i:spotLight_preview.intensity
+	,d:spotLight_preview.distance
+	,c:spotLight_preview.decay
+	,shadow:spotLight_preview.castShadow};
+}
+
+
+function checkScreen(){
+	validateScreenSize();
+	processCommand("func:set_screen_size;params:width:"+document.getElementById("screen_width_text").value+",height:"+document.getElementById("screen_height_text").value+";");
+}
+
+//Light の intensity とかをチェックして preview をそれに合わせる
+function checkLights(){
+	document.getElementById("anum").innerHTML = String(Math.round(ambientLight.intensity*10)/10);
+	if(document.getElementById("anum").innerHTML == "0"){
+		document.getElementById("anum").innerHTML = "0.0";
+	}
+	let vector = new THREE.Vector3( 0, 30,0 );
+	let vector2 = new THREE.Vector3( 0, 0,-20 );
+	vector.applyQuaternion( camera.quaternion );
+	vector2.applyQuaternion( camera.quaternion );
+	//位置確認用 sphere.position.set(vector.x+camera.position.x+vector2.x,vector.y+camera.position.y+vector2.y,vector.z+camera.position.z+vector2.z);
+	pointLight_preview.position.set(vector.x+camera.position.x+vector2.x
+	,vector.y+camera.position.y+vector2.y
+	,vector.z+camera.position.z+vector2.z);
+	
+	
+	spotLight_preview.position.set(vector.x+camera.position.x+vector2.x,vector.y+camera.position.y+vector2.y,vector.z+camera.position.z+vector2.z);
+
+	
+	directionalLight_preview.position.set(
+	spotLight_preview.position.x-centerPos.x
+	,spotLight_preview.position.y-centerPos.y
+	,spotLight_preview.position.z-centerPos.z
+	);
+	
+	
+	
+	spotlight_target_cube.position.x =centerPos.x;
+	spotlight_target_cube.position.y = centerPos.y;
+	spotlight_target_cube.position.z = centerPos.z;
+	
+	spotLight_preview.target = spotlight_target_cube;
+	
+	
+	
+
+	//validatePointLight();
+	validateDirectionalLight();
+	validateSpotLight();
+	
+	if(document.getElementById("p_preview").checked == true){
+		pointLight_preview.visible = true;
+	}else{
+		pointLight_preview.visible = false;
+	}
+	
+	if(document.getElementById("d_preview").checked == true){
+		directionalLight_preview.visible = true;
+
+	}else{
+		directionalLight_preview.visible = false;
+	}
+	if(document.getElementById("s_preview").checked == true){
+		spotLight_preview.visible = true;
+
+	}else{
+		spotLight_preview.visible = false;
+	}
+	
+}
+
+
+
+
+
+
+function checkLoading(){
+	for(var ii = 0;ii < loadingFiles.length;ii++){
+		if(loadingFiles[ii].obj in fileLoaded){
+			if(fileLoaded[loadingFiles[ii].obj] == "loading"){
+				return -1;
+			}
+		}else{
+			loadPolygons(loadingFiles[ii].obj,loadingFiles[ii].mtl);
+			return -1;
+		}
+	}
+	document.getElementById("messagediv2").innerHTML = "";
+	document.getElementById("messagediv").innerHTML = "Finished.";
+	firstFlag = false;
+	clearTimeout(loadTimer);
+	loadTimer = null;
+	fileLoaded = [];
+	loadingFiles = [];
+	return 0;
+}
+
+function flagAll(){
+	
+	for(var ii = 0;ii < loadingFiles.length;ii++){
+		if(loadingFiles[ii].obj in fileLoaded){
+			if(fileLoaded[loadingFiles[ii].obj] == "loading"){
+				fileLoaded[loadingFiles[ii].obj] = "finished";
+			}
+		}
+	}
+}
+
+function setCenter(num){
+	var oo = id_to_obj[num];
+	//addBoxHelper(oo,0x00ff00);
+	var o = oo;
+	if(o.children.length > 0){
+		o = o.children[0];
+	}
+	if(o.geometry != null){
+		var geom = o.geometry;
+		var xmax = geom.attributes.position.array[0];
+		var xmin = geom.attributes.position.array[0];
+		var ymax = geom.attributes.position.array[1];
+		var ymin = geom.attributes.position.array[1];
+		var zmax = geom.attributes.position.array[2];
+		var zmin = geom.attributes.position.array[2];
+		var att = geom.attributes.position.array;
+		//for(var ii = 3;ii < att.count;ii+=3){
+		for(var ii = 3;ii < att.length;ii+=3){
+			xmax = Math.max(xmax,att[ii]);
+			xmin = Math.min(xmin,att[ii]);
+			ymax = Math.max(ymax,att[ii+1]);
+			ymin = Math.min(ymin,att[ii+1]);
+			zmax = Math.max(zmax,att[ii+2]);
+			zmin = Math.min(zmin,att[ii+2]);
+		}
+		
+		centerPos.x = xmax/2+xmin/2;
+		centerPos.y = ymax/2+ymin/2;
+		centerPos.z = zmax/2+zmin/2;
+		
+		setCameraPosition(camera_prim_position.x,camera_prim_position.y,camera_prim_position.z);
+		
+		cameraPos_orig.x = camera_prim_position.x;
+		cameraPos_orig.y = camera_prim_position.y;
+		cameraPos_orig.z = camera_prim_position.z;
+		
+		centerPos_orig.x = centerPos.x;
+		centerPos_orig.y = centerPos.y;
+		centerPos_orig.z = centerPos.z;
+		
+		
+	}
+}
+function cameraRotate(rx,ry){
+	
+	rotateX = rx;
+	rotateY = ry;
+	var cos_x = Math.cos(rotateX);
+	var sin_x = Math.sin(rotateX);
+	var cos_y = Math.cos(rotateY);
+	var sin_y = Math.sin(rotateY);
+		
+	var cameradist = Math.sqrt(camera_prim_position.x*camera_prim_position.x+ camera_prim_position.y*camera_prim_position.y+ camera_prim_position.z*camera_prim_position.z);
+	var nx = cameraStartPos.x;
+	var ny = cameraStartPos.y;
+	//var nz = cameraStartPos.z;
+	var nz = cameradist;
+
+	var cz = Math.cos(rotateY)*nz-Math.sin(rotateY)*ny;
+	var cy = Math.cos(rotateY)*ny+Math.sin(rotateY)*nz;
+
+	var cx = -Math.sin(rotateX)*cz+Math.cos(rotateX)*nx;
+	cz = Math.sin(rotateX)*ny+Math.cos(rotateX)*cz;
+	
+	setCameraPosition(cx,cy,cz);
+}
+
+
+function hideModel(num){
+	scene.remove(id_to_obj[num]);
+}
+
+function transModel(num,opac){
+	if(id_to_obj[num] != null){
+		scene.remove(id_to_obj[num]);
+		scene.add(id_to_obj[num]);
+		var oo = id_to_obj[num];
+		for(var jj = 0;jj < oo.children.length;jj++){
+			var o = oo.children[jj];
+			if(opac < 1.0){
+				o.material.transparent = true;
+			}else{
+				o.material.transparent = false;
+			}
+			o.material.opacity = opac;
+		}
+	}
+}
+function showModel(num){
+	hideModel(num);
+	if(checkLoading() < 0){
+		document.getElementById("messagediv2").innerHTML = "<strong><font color='red'>Loading another objects. Please wait.</font></strong>";
+		return;
+	}
+	if(id_to_obj[num] != null && id_current[num] == 1){
+		transModel(num,1.0);
+	}else{
+		loadingFiles.push(objectList[num]);
+		if(loadTimer == null){
+			loadTimer = setInterval(checkLoading,500);
+		}
+	}
+	id_current[num] = 1;
+}
+
+
+function checkBoxTimer(){
+	clearTimeout(boxTimer);
+	boxTimer = null;
+	for(var ii = 0;ii < boundingBoxes.length;ii++){
+		scene.remove(boundingBoxes[ii]);
+	}
+	boundingBoxes = [];
+}
+
+
+function parseContentToHash(str){
+	var parts = str.split(/[\r\n]+/);
+	var ret = new Array();
+	var rege = new RegExp();
+	rege.compile(/^([^\t]+)\t([^\r\n]+)/);
+	for(var pp = 0;pp < parts.length;pp++){
+		var pparts = parts[pp].split(/[\t]/);
+		if(parts[pp].match(rege)){
+			if(ret[RegExp.$1]){
+				ret[RegExp.$1] += "\n"+RegExp.$2;
+			}else{
+				ret[RegExp.$1] = RegExp.$2;
+			}
+			//alert(RegExp.$1+":::"+RegExp.$2);
+		}
+	}
+	return ret;
+}
+
+function wheel(event){
+	var delta = 0;
+	if(event.preventDefault) {
+		event.preventDefault();
+	}
+	if (!event){
+		event = window.event;
+	}
+	if(event.wheelDelta){
+		delta = event.wheelDelta/40;
+	}else if(event.detail){
+		delta = -event.detail;
+	}
+	if(delta != 0){
+	
+		if(!event.shiftKey){
+			changeZ(delta,1.0);
+		}else{
+			changeZ(delta,0.05);
+		}
+		
+	}
+	event.returnValue = false;
+};
+
+function changeZ(deg,val){
+	var c =  new THREE.Vector3(0,0,0);
+	var prev = camera_prim_position;
+	var px = prev.x-c.x;
+	var py = prev.y-c.y;
+	var pz = prev.z-c.z;
+	var sq = px*px+py*py+pz*pz;
+	var sdist = sq;
+	if(sq <= 0){
+		deg = Math.sqrt(0.1*val);		
+	}else{
+		
+		sdist = Math.sqrt(sq);
+		sq = sdist;
+	}
+	if(deg == 0){
+		return;
+	}
+	deg = Math.min(0.45,Math.abs(deg))*deg/Math.abs(deg)/2.0*val;
+	
+	var nx = prev.x+px/sq*100*deg;
+	var ny = prev.y+py/sq*100*deg;
+	var nz = prev.z+pz/sq*100*deg;
+	
+	var pdist =  (nx-px)*(nx-px)+(ny-py)*(ny-py)+(nz-pz)*(nz-pz);
+	if(pdist > 0){
+		pdist = Math.sqrt(pdist);
+	}
+	var dist = (nx-c.x)*(nx-c.x)+(ny-c.y)*(ny-c.y)+(nz-c.z)*(nz-c.z);
+	if(dist > 0){
+		dist = Math.sqrt(dist);
+	}
+	
+	if(Math.abs(dist+sdist-pdist) < 0.005){;
+		nx = c.x+px/sq;
+		ny = c.y+py/sq;
+		nz = c.z+pz/sq;	
+	}
+	if(dist > 3000){
+		nx = nx/dist*3000;
+		ny = ny/dist*3000;
+		nz = nz/dist*3000;	
+	}
+	setCameraPosition(nx,ny,nz);
+};
+function changeBG(){
+	let cb = document.getElementById("bgcolor");
+	//console.log(cb.options[cb.selectedIndex].value);
+	renderer.setClearColor(cb.options[cb.selectedIndex].value, 1);
+}
+
+//昔はライト全部の影をオンオフさせようとしていた
+//<input type="button" id="cshadow" value="Shadow is OFF"  onclick='changeShadowStat()'/> 
+function castShadow(b){
+    renderer.shadowMap.enabled=b;
+	
+	for(vv in ex_pointLights){
+		
+		ex_pointLights[vv].castShadow = b;
+		//https://threejs.org/docs/#api/en/lights/shadows/LightShadow
+		ex_pointLights[vv].shadow.mapSize.width = shadow_mapSize; 
+		ex_pointLights[vv].shadow.mapSize.height = shadow_mapSize; 
+		ex_pointLights[vv].shadow.camera.near = shadow_cameraNear;   
+		ex_pointLights[vv].shadow.camera.far = shadow_cameraFar;     
+	}
+	
+	for(vv in id_to_obj){
+		id_to_obj[vv].castShadow = b;
+		id_to_obj[vv].receiveShadow = b;
+		for(var ii = 0;ii < id_to_obj[vv].children.length;ii++){
+			id_to_obj[vv].children[ii].receiveShadow = b;
+			id_to_obj[vv].children[ii].castShadow = b;
+		}
+	}
+	//let vector = new THREE.Vector3();
+	//camera.getWorldDirection( vector );
+	//console.log(vector);
+}
+function changeShadowStat(){
+	let bz = !renderer.shadowMap.enabled;
+	renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+	let s = document.getElementById("cshadow");
+	if(bz){
+		s.value = "Shadow is ON";
+	}else{
+		s.value = "Shadow is OFF";
+	}
+	castShadow(bz);
+}
+
+function keyCheck(e) {
+	var char = e.which || e.keyCode;
+	if(char == 13){// || (char > 47 && char <58)){
+		checkLights();
+	}
+	//console.log(char);
+}
+function keyCheck_Screen(e) {
+	var char = e.which || e.keyCode;
+	if(char == 13){// || (char > 47 && char <58)){
+		checkScreen();
+	}
+}
+
+function resetCameraPosition(){
+	
+	centerPos.x = centerPos_orig.x;
+	centerPos.y = centerPos_orig.y;
+	centerPos.z = centerPos_orig.z;
+	camera_prim_position.x = cameraPos_orig.x;
+	camera_prim_position.y = cameraPos_orig.y;
+	camera_prim_position.z = cameraPos_orig.z;
+	
+	cameraRotate(0.0,0.0);
+	//setCameraPosition(cameraPos_orig.x,cameraPos_orig.y,cameraPos_orig.z);
+}
+
+
+function setCameraPosition(nx,ny,nz){
+
+	camera_prim_position.x = nx;
+	camera_prim_position.y = ny;
+	camera_prim_position.z = nz;
+	camera.position.set(nx+centerPos.x,ny+centerPos.y,nz+centerPos.z);
+	//directionalLight.target.position.set(centerPos.x,centerPos.y,centerPos.z);
+	//directionalLight.position.set(nx+centerPos.x,ny+centerPos.y,nz+centerPos.z);
+	//directionalLight.position.set(nx,ny,nz);
+	
+	
+	camera.lookAt( new THREE.Vector3(centerPos.x,centerPos.y,centerPos.z));
+	let vx = camera.up.x;
+	let vy = camera.up.y;
+	let vz = camera.up.z;
+	let dd = Math.sqrt(vx*vx+vy*vy+vz*vz);
+	vx /= dd;
+	vy /= dd;
+	vz /= dd;
+	
+	let zzd = 1.57*Math.sqrt(nx*nx+ny*ny+nz*nz);
+	//zzd = 0;
+	//directionalLight_preview.position.set(nx,ny,nz);//カメラ位置にライトを置く場合
+	
+	checkLights();
+	
+	document.getElementById("camera_rotation_x").value = rotateX;
+	document.getElementById("camera_rotation_y").value = rotateY;
+	document.getElementById("camera_distance").value = Math.sqrt(camera_prim_position.x*camera_prim_position.x+camera_prim_position.y*camera_prim_position.y+camera_prim_position.z*camera_prim_position.z);
+	
+	document.getElementById("center_x").value = centerPos.x;
+	document.getElementById("center_y").value = centerPos.y;
+	document.getElementById("center_z").value = centerPos.z;
+}
+
+function loadCameraPosition(){
+	rotateX = parseFloat(document.getElementById("camera_rotation_x").value);
+	rotateY = parseFloat(document.getElementById("camera_rotation_y").value);
+	camera_prim_position.z = parseFloat(document.getElementById("camera_distance").value);
+	camera_prim_position.y = 0;
+	camera_prim_position.x = 0;
+	
+	centerPos.x = parseFloat(document.getElementById("center_x").value);
+	centerPos.y = parseFloat(document.getElementById("center_y").value);
+	centerPos.z = parseFloat(document.getElementById("center_z").value);
+	cameraRotate(rotateX,rotateY);
+}
+
+</script>
+</head>
+
+
+<body onload='initPage();' style="margin: 0px;">
+<div style="margin-left:3%">Screen: 
+	width: <input type="text" style="text-align:right;" id="screen_width_text" size="5" value="800"  onblur="checkScreen()" onkeypress="keyCheck_Screen(event)"/>, 
+	height: <input type="text" style="text-align:right;" id="screen_height_text" size="5" value="500"  onblur="checkScreen()" onkeypress="keyCheck_Screen(event)"/>
+	Move: SHIFT+(CONTROL+)DRAG, Scale slowly: SHIFT+WHEEL 
+</div>	
+<div id="buttondiv" style="margin-left:3%">
+ Background: <select id="bgcolor" onchange="changeBG()">
+<option value="white">white</option>
+<option value="black">black</option>
+</select> 
+&nbsp;&nbsp;&nbsp;Ambient Light[<span id="anum"></span>]: <input type="button" name="ad_al" value="Brighter"  onclick='processCommand("func:brighten_ambient_light;params:value:222222;");'  onkeypress="keyCheck(event)"/> 
+<input type="button" name="rem_al" value="Darker"  onclick='processCommand("func:darken_ambient_light;")'/>
+</div>
+
+
+<div style="margin-left:3%;display:none;">
+<input type="button" name="add_point" value="Add PointLight"  onclick='addPointLight()'/> 
+intensity: <input type="text" style="text-align:right;" id="p_intensity" size="5" value="1.0" onblur="checkLights()" onkeypress="keyCheck(event)"/>
+distance: <input type="text" style="text-align:right;" id="p_distance" size="5" value="100"  onblur="checkLights()" onkeypress="keyCheck(event)"/>
+decay: <input type="text" style="text-align:right;" id="p_decay" size="5" value="1"  onblur="checkLights()" onkeypress="keyCheck(event)"/>
+shadow:  <select id="p_shadowswitch"  onblur="checkLights()" onchange="checkLights()">
+<option value="ON">ON</option>
+<option value="OFF">OFF</option>
+</select> 
+
+<input type="checkbox" id="p_preview" onclick="checkLights()"/> preview
+<span id="extra_pointlight"></span>
+</div>
+
+<div style="margin-left:3%"><input type="button" name="add_direct" value="Add DirectionalLight"  onclick='addDirectionalLight()'/> 
+intensity: <input type="text" style="text-align:right;" id="d_intensity" size="5" value="0.2"  onblur="checkLights()"  onkeypress="keyCheck(event)"/>
+<input type="checkbox" id="d_preview"  onclick="checkLights()"/> preview
+<span id="extra_directionallight"></span>
+</div>
+<div style="margin-left:3%"><input type="button" name="add_direct" value="Add SpotLight"  onclick='addSpotLight()'/> 
+intensity: <input type="text" style="text-align:right;" id="s_intensity" size="5" value="0.5"  onblur="checkLights()" onkeypress="keyCheck(event)"/>
+distance: <input type="text" style="text-align:right;" id="s_distance" size="5" value="1000"  onblur="checkLights()" onkeypress="keyCheck(event)"/>
+decay: <input type="text" style="text-align:right;" id="s_decay" size="5" value="1"  onblur="checkLights()" onkeypress="keyCheck(event)"/>
+shadow:  <select id="s_shadowswitch"  onblur="checkLights()"  onchange="checkLights()">
+<option value="ON">ON</option>
+<option value="OFF">OFF</option>
+</select> 
+<input type="checkbox" id="s_preview"  onclick="checkLights()" checked/> preview
+<span id="extra_spotlight"></span>
+</div>
+<div style="margin-left:3%">
+Camera: rotateX = <input type="text" style="text-align:right;" id="camera_rotation_x" size="5" value="0" />,
+ rotateY = <input type="text" style="text-align:right;" id="camera_rotation_y" size="5" value="0" />,
+ distance = <input type="text" style="text-align:right;" id="camera_distance" size="5" value="500" />; 
+Center: x = <input type="text" style="text-align:right;" id="center_x" size="5" value="" />,
+ y = <input type="text" style="text-align:right;" id="center_y" size="5" value="" />,
+ z = <input type="text" style="text-align:right;" id="center_z" size="5" value="" />
+
+<input type="button" id="camera_set_button" value="set"  onclick="loadCameraPosition()" />
+<input type="button" id="camera_reset_button" value="reset" onclick="resetCameraPosition()" />
+
+</div>
+<div id="messagediv" style="margin-left:3%;margin-right:3%;">Loading</div>
+
+
+
+<div id="messagediv2" style="margin-left:5%;margin-right:5%;"></div>
+<center>
+<table>
+<tr>
+<td>
+<div id="div1"></div>
+</td>
+
+<td>
+</td>
+</tr>
+</table>
+</center>
+<div style="margin-left:3%;display:none;">
+<div><input type="button" name="" value="Process Command"  onclick='processCommandInTextArea()'/> </div>
+<div><textarea id="commandtexts" rows="2" cols="80"></textarea></div>
+</div>
+<div>e_Simple3DView 20190908 powered by Three.js</div>
+</body>
+</html>
+

@@ -1,0 +1,15 @@
+{
+  "name": "e_Simple3DView",
+  "version": "1.0.0",
+  "description": "Simple 3D Object Viewer",
+  "main": "src/main.js",
+  "dependencies": {
+    "electron-packager": "^14.0.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "yamule",
+  "license": "Apache-2.0"
+}
