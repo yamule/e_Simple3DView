@@ -23,11 +23,11 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true
     },
-    width: 800,
+    width: 840,
     height: 600
   });
   mainWindow.loadFile("loader_test.html");
-  //mainWindow.webContents.openDevTools();
+  //  mainWindow.webContents.openDevTools();
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

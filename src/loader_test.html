@@ -157,9 +157,13 @@ function loadFiles(filelist){
 
 		if(obj != null && mtl == null){
 			mtl = getMTLPath(obj);
-			if(!path.isAbsolute(mtl)){
-				let mbasedir = path.dirname(obj);
-				mtl = mbasedir+"/"+mtl;
+			if(mtl.length == 0){
+				mtl = null;
+			}else{
+				if(!path.isAbsolute(mtl)){
+					let mbasedir = path.dirname(obj);
+					mtl = mbasedir+"/"+mtl;
+				}
 			}
 			console.log(mtl);
 		}
@@ -170,7 +174,11 @@ function loadFiles(filelist){
 			//let obasedir = path.dirname(obj);
 			//let ofilename = path.basename(obj);
 			//processCommand("func:load_polygons;params:obj:"+ofilename+",mtl:"+mfilename+",obj_basedir:"+obasedir+",mtl_basedir:"+mbasedir+";");
-			processCommand("func:load_polygons;params:obj:"+obj+",mtl:"+mtl+";");
+			if(mtl == null){
+				processCommand("func:load_polygons;params:obj:"+obj);
+			}else{
+				processCommand("func:load_polygons;params:obj:"+obj+",mtl:"+mtl+";");
+			}
 		}
 		if(stl != null){
 			processCommand("func:load_polygons;params:stl:"+stl+";");
@@ -197,7 +205,7 @@ function initPage(){
 	scene.add(spotLight_preview);
 	
 	if(window.innerWidth){
-		SCREEN_WIDTH = window.innerWidth-10;
+		SCREEN_WIDTH = window.innerWidth-40;
 		SCREEN_HEIGHT = window.innerHeight-40;
 
 	}
@@ -436,15 +444,7 @@ function focus(num){
 	
 	prevFocus = num;
 };
-
-
-function loadPolygons(ofile,mfile){
-	if(ofile in fileLoaded){
-		return;
-	}
-	fileLoaded[ofile] = "loading";
-	file_to_id[ofile] = sid++;
-	
+function loadOBJ(ofile,materials){
 	var onProgress = function ( xhr ) {
 		if ( xhr.lengthComputable ) {
 			var lp = xhr.loaded / xhr.total * 100;
@@ -454,49 +454,66 @@ function loadPolygons(ofile,mfile){
 	var onError = function ( xhr ) { 
 	console.log("error loading obj file.");
 	flagAll();};
-	
-	var mtlLoader = new THREE.MTLLoader();
-	
-	//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
-	mfile = mfile.replace(/\\/g,"/");
-	//console.log(mfile);
-	if(resourceIsAbsolute(mfile)){
-		mtlLoader.setResourcePath("");
-		mtlLoader.setPath("");
-	}
-	
-	//http://threejs.org/examples/webgl_loader_obj.html
-	mtlLoader.load( mfile, function( materials ) {
-		materials.preload();
-		let objLoader = new THREE.OBJLoader();
+	let objLoader = new THREE.OBJLoader();
+	if(materials){
 		objLoader.setMaterials( materials );
-		objLoader.load( ofile, function ( objects ) {
-			scene.add( objects );
-			if(id_to_obj[file_to_id[ofile]] != null){
-				hideModel(file_to_id[ofile]);
+	}
+	objLoader.load( ofile, function ( objects ) {
+		scene.add( objects );
+		if(id_to_obj[file_to_id[ofile]] != null){
+			hideModel(file_to_id[ofile]);
+		}
+		id_to_obj[file_to_id[ofile]] = objects;
+		
+		fileLoaded[ofile] = "loaded";
+		
+		targetMesh = objects;
+		
+		objects.castShadow = true;
+		objects.receiveShadow = true;
+		for(let ii = 0;ii < objects.children.length;ii++){
+			objects.children[ii].receiveShadow = true;
+			objects.children[ii].castShadow = true;
+		}
+		setCenter(file_to_id[ofile]);
+		document.getElementById("messagediv").innerHTML = "Loaded";
+	}, onProgress, onError );
+}
+
+function loadPolygons(ofile,mfile){
+	if(ofile in fileLoaded){
+		if(fileLoaded[ofile] == "loaded"){
+			hideModel(file_to_id[ofile]);
+		}else{
+			return;
+		}
+	}
+	fileLoaded[ofile] = "loading";
+	file_to_id[ofile] = sid++;
+	
+
+	try {
+		if(mfile != null){
+			fs.statSync(mfile);
+			var mtlLoader = new THREE.MTLLoader();
+			//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
+			mfile = mfile.replace(/\\/g,"/");
+			//console.log(mfile);
+			if(resourceIsAbsolute(mfile)){
+				mtlLoader.setResourcePath("");
+				mtlLoader.setPath("");
 			}
-			id_to_obj[file_to_id[ofile]] = objects;
-			
-			fileLoaded[ofile] = "loaded";
-			
-			targetMesh = objects;
-			
-			objects.castShadow = true;
-			objects.receiveShadow = true;
-			for(let ii = 0;ii < objects.children.length;ii++){
-				objects.children[ii].receiveShadow = true;
-				objects.children[ii].castShadow = true;
-			}
-			
-			
-			//addBoxHelper(objects,0x00ff00);
-			//if(firstFlag){
-				setCenter(file_to_id[ofile]);
-			//}
-			
-			document.getElementById("messagediv").innerHTML = "Loaded";
-		}, onProgress, onError );
-	});
+			//http://threejs.org/examples/webgl_loader_obj.html
+			mtlLoader.load( mfile, function( materials ) {
+				materials.preload();
+				loadOBJ(ofile,materials);
+			});
+			return;
+		}
+	} catch(err) {
+		document.getElementById("messagediv2").innerHTML = "<b>"+mfile+" does not exist.</b>";
+	}
+	loadOBJ(ofile,null);
 }
 function clearAllModels(){
 	for(ii in id_to_obj){
@@ -509,7 +526,11 @@ function clearAllModels(){
 }
 function loadSTL(stlfile){
 	if(stlfile in fileLoaded){
-		return;
+		if(fileLoaded[stlfile] == "loaded"){
+			hideModel(file_to_id[stlfile]);
+		}else{
+			return;
+		}
 	}
 	file_to_id[stlfile] = sid++;
 	
