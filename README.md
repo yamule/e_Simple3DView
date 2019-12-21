@@ -5,7 +5,7 @@ Simple 3D Object Viewer which allows you to change a few environment settings (l
 <img src="https://raw.githubusercontent.com/yamule/e_Simple3DView/master/docs/img/example_1.png" width="600px">
 
 
-A precompiled binary for windows is available from the [release](https://github.com/yamule/e_Simple3DView/releases) page.
+A precompiled binary for windows & Linux are available from the [release](https://github.com/yamule/e_Simple3DView/releases) page.
 
 
 ## Make binary app
