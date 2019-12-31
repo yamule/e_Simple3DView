@@ -1,5 +1,7 @@
 const { app, BrowserWindow,Menu,ipcMain} = require("electron");
 let mainWindow;
+//packaging
+//electron-packager --overwrite ./src e_Simple3DView --platform=win32 --arch=x64 --electron-version=5.0.6
 const template = [
   {
       label: 'Object',
@@ -27,7 +29,7 @@ function createWindow() {
     height: 600
   });
   mainWindow.loadFile("loader_test.html");
-  //  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
