@@ -25,6 +25,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true
     },
+    //ToDo 大きさと位置の記憶
     width: 840,
     height: 600
   });

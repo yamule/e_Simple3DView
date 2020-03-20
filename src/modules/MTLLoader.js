@@ -520,7 +520,9 @@ THREE.MTLLoader.MaterialCreator.prototype = {
 		}
 
 		if ( loader.setCrossOrigin ) loader.setCrossOrigin( this.crossOrigin );
-		texture = loader.load( url, onLoad, onProgress, onError );
+		
+		//modified by yamule
+		texture = loader.load( url+"?"+Math.random(), onLoad, onProgress, onError );
 
 		if ( mapping !== undefined ) texture.mapping = mapping;
 
