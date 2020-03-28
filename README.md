@@ -23,7 +23,7 @@ To compile windows executable, please type
 ```
 npm install -D electron-packager
 npm install electron-store
- .\node_modules\.bin\electron-packager ./ e_Simple3DView --platform=win32 --arch=x64 --electron-version={your electron version}
+ ./node_modules/.bin/electron-packager ./ e_Simple3DView --platform=win32 --arch=x64 --electron-version={your electron version}
 ```
 Your electron version can be checked with "electron -v" command.
 
