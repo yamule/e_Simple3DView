@@ -40,11 +40,13 @@ Apache License v 2.0
 ## Author
 yamule
 
-## Libraries
+## Dependencies
 [node.js](https://nodejs.org/)
 
 [electron](https://github.com/electron/electron)
 
 [electron-packager](https://github.com/electron/electron-packager)
+
+[electron-store](https://github.com/sindresorhus/electron-store)
 
 [three.js](https://threejs.org/)
