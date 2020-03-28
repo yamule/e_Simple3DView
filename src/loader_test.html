@@ -385,9 +385,17 @@ function initPage(){
 	scene.add(spotlight_target_cube);
 	
 	checkLights();
+	resize();
 }
 
-
+function resize() { 
+	let hhei = window.innerHeight-120;
+	let wwid = Math.floor(window.innerWidth*0.9);
+	document.getElementById("screen_width_text").value = wwid+"";
+	document.getElementById("screen_height_text").value = hhei+"";
+	processCommand("func:set_screen_size;params:width:"+document.getElementById("screen_width_text").value+",height:"+document.getElementById("screen_height_text").value+";");
+}
+window.onresize = resize;
 function toScreenXY ( position, camera ) {
 	let jqdiv = 0;
 //modified from https://github.com/mrdoob/three.js/issues/78

@@ -8,7 +8,7 @@ Simple 3D Object Viewer which allows you to change a few environment settings (l
 Precompiled binaries for 64bit Windows & Linux are available from the [release](https://github.com/yamule/e_Simple3DView/releases) page.
 
 
-## Make binary app
+## Make binary app from source
 I think you need
 
 [node.js](https://nodejs.org/)
