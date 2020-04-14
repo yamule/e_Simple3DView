@@ -488,6 +488,13 @@ function loadOBJ(ofile,materials){
 	}, onProgress, onError );
 }
 
+function make_trtd(cchild){
+	let trr = document.createElement("tr");
+	let tdd = document.createElement("td");
+	tdd.appendChild(cchild);
+	trr.appendChild(tdd);
+	return trr;
+}
 function loadPolygons(ofile,mfile){
 	if(ofile in fileLoaded){
 		if(fileLoaded[ofile] == "loaded"){
@@ -498,8 +505,31 @@ function loadPolygons(ofile,mfile){
 	}
 	fileLoaded[ofile] = "loading";
 	file_to_id[ofile] = sid++;
+	let btable = document.createElement("table");
 	
+	let bdiv = document.createElement("div");
+	bdiv.innerHTML = ofile;
+	btable.appendChild(make_trtd(bdiv));
 
+	let showbutton=document.createElement("button");
+	showbutton.innerHTML = "Show";
+	showbutton.addEventListener("click",function(){showModel(file_to_id[ofile])});
+	btable.appendChild(make_trtd(showbutton));
+
+	let hidebutton=document.createElement("button");
+	hidebutton.innerHTML = "Hide";
+	hidebutton.addEventListener("click",function(){hideModel(file_to_id[ofile])});
+	btable.appendChild(make_trtd(hidebutton));
+
+	let transparent=document.createElement("button");
+	transparent.innerHTML = "Transparent";
+	transparent.addEventListener("click",function(){transModel(file_to_id[ofile],0.4)});
+	btable.appendChild(make_trtd(transparent));
+
+
+	let selectordiv = document.getElementById("selector_div");
+	selectordiv.appendChild(btable);
+	
 	try {
 		if(mfile != null){
 			fs.statSync(mfile);
@@ -1192,15 +1222,7 @@ function showModel(num){
 		document.getElementById("messagediv2").innerHTML = "<strong><font color='red'>Loading another objects. Please wait.</font></strong>";
 		return;
 	}
-	if(id_to_obj[num] != null && id_current[num] == 1){
-		transModel(num,1.0);
-	}else{
-		loadingFiles.push(objectList[num]);
-		if(loadTimer == null){
-			loadTimer = setInterval(checkLoading,500);
-		}
-	}
-	id_current[num] = 1;
+	scene.add(id_to_obj[num]);
 }
 
 
@@ -1491,6 +1513,7 @@ Center: x = <input type="text" style="text-align:right;" id="center_x" size="5" 
 
 
 <div id="messagediv2" style="margin-left:5%;margin-right:5%;"></div>
+<div id="selector_div"> </div>
 <center>
 <table>
 <tr>
