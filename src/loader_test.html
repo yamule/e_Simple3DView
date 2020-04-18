@@ -506,24 +506,61 @@ function loadPolygons(ofile,mfile){
 	fileLoaded[ofile] = "loading";
 	file_to_id[ofile] = sid++;
 	let btable = document.createElement("table");
-	
+	btable.style["width"] = "300px";
+
+	/*
+	ここから
+	SCREEN の右につける
+	->OK 左につけた
+	 
+	ProcCommand で処理させる
+	Transparent はクリック毎に調整する
+	Remove をつける
+	スクリーン（Scene）を
+	1	2
+	3	4
+	と作って、
+1.2.3.4 ボタンをつけて、
+	そのボタンを押したサブスクリーンに表示させる。
+	同時表示は出来るのだろうか・・・
+
+	センターボタンで RayCast してヒットしたポリゴンを中心に
+	名前を短く
+	*/
 	let bdiv = document.createElement("div");
-	bdiv.innerHTML = ofile;
+	bdiv.innerHTML = ofile.split(/.*[\/\\]/).join('');
 	btable.appendChild(make_trtd(bdiv));
 
 	let showbutton=document.createElement("button");
-	showbutton.innerHTML = "Show";
-	showbutton.addEventListener("click",function(){showModel(file_to_id[ofile])});
-	btable.appendChild(make_trtd(showbutton));
+	showbutton.innerHTML = "Hide";
+	showbutton.style["width"]  = "100%";
+	showbutton.model_VisibilityState = true;
+	showbutton.addEventListener("click",function(){
+		if(showbutton.model_VisibilityState){
+			processCommand("func:hide_model;params:filename:"+ofile);
+			showbutton.model_VisibilityState = false;
+			showbutton.innerHTML = "Show";
+		}else{
+			processCommand("func:show_model;params:filename:"+ofile);
+			showbutton.model_VisibilityState = true;
+			showbutton.innerHTML = "Hide";
 
-	let hidebutton=document.createElement("button");
-	hidebutton.innerHTML = "Hide";
-	hidebutton.addEventListener("click",function(){hideModel(file_to_id[ofile])});
-	btable.appendChild(make_trtd(hidebutton));
+		}
+	
+	});
+	btable.appendChild(make_trtd(showbutton));
 
 	let transparent=document.createElement("button");
 	transparent.innerHTML = "Transparent";
-	transparent.addEventListener("click",function(){transModel(file_to_id[ofile],0.4)});
+	transparent.style["width"]  = "100%";
+	transparent.trans_ratio = 1.0;
+	transparent.addEventListener("click",function(){
+		transparent.trans_ratio -= 0.1;
+		if(transparent.trans_ratio < 0.0){
+			transparent.trans_ratio = 1.0;
+		}
+		processCommand("func:change_transparency;params:filename:"+ofile+",ratio:"+transparent.trans_ratio.toString());
+	});
 	btable.appendChild(make_trtd(transparent));
 
 
@@ -536,7 +573,7 @@ function loadPolygons(ofile,mfile){
 			var mtlLoader = new THREE.MTLLoader();
 			//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
 			mfile = mfile.replace(/\\/g,"/");
-			//console.log(mfile);
+
 			if(resourceIsAbsolute(mfile)){
 				mtlLoader.setResourcePath("");
 				mtlLoader.setPath("");
@@ -739,6 +776,18 @@ function processCommand(str){
 			
 			case "brighten_ambient_light":
 				ambientLight.intensity += 0.2;
+			break;
+			
+			case "show_model":
+				showModel(file_to_id[paramvalmap["filename"]]);
+			break;
+			
+			case "change_transparency":
+				transModel(file_to_id[paramvalmap["filename"]],parseFloat(paramvalmap["ratio"]));
+			break;
+			
+			case "hide_model":
+				hideModel(file_to_id[paramvalmap["filename"]]);
 			break;
 			
 			case "darken_ambient_light":
@@ -1196,12 +1245,9 @@ function cameraRotate(rx,ry){
 }
 
 
-function hideModel(num){
-	scene.remove(id_to_obj[num]);
-}
 
 function transModel(num,opac){
-	if(id_to_obj[num] != null){
+	if(id_to_obj[num]){
 		scene.remove(id_to_obj[num]);
 		scene.add(id_to_obj[num]);
 		var oo = id_to_obj[num];
@@ -1214,16 +1260,20 @@ function transModel(num,opac){
 			}
 			o.material.opacity = opac;
 		}
+	}else{
+		console.log(num+" is not found in scenes.");
 	}
 }
+
+function hideModel(num){
+	scene.remove(id_to_obj[num]);
+}
+
 function showModel(num){
 	hideModel(num);
-	if(checkLoading() < 0){
-		document.getElementById("messagediv2").innerHTML = "<strong><font color='red'>Loading another objects. Please wait.</font></strong>";
-		return;
-	}
 	scene.add(id_to_obj[num]);
 }
+
 
 
 function checkBoxTimer(){
@@ -1513,16 +1563,17 @@ Center: x = <input type="text" style="text-align:right;" id="center_x" size="5" 
 
 
 <div id="messagediv2" style="margin-left:5%;margin-right:5%;"></div>
-<div id="selector_div"> </div>
 <center>
 <table>
 <tr>
-<td>
+	
+<td width="10%" valign="top" align="center">
+	<div id="selector_div"> </div>
+</td>
+<td width=90%>
 <div id="div1"></div>
 </td>
 
-<td>
-</td>
 </tr>
 </table>
 </center>

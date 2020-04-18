@@ -33,7 +33,7 @@ function createWindow() {
     height: store.get('window.height', 600),
   });
   mainWindow.loadFile("src/loader_test.html");
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
   mainWindow.on("close", () => {
     let bb = mainWindow.getBounds();
     store.set({
