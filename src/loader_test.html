@@ -49,13 +49,14 @@ var mfiles = [
 ];
 
 var mousePrev;
-var renderer = new THREE.WebGLRenderer();
 var firstFlag = true;
-var scene    = new THREE.Scene();
 var targetMesh;
 var frameInterval;
 var lights = new Array();
 var camera;
+var scene    = new THREE.Scene();
+var renderer = new THREE.WebGLRenderer();
+
 var imageList = new Array();
 var screenPressed = false;;
 var rotateX = 0;
@@ -452,7 +453,7 @@ function focus(num){
 	
 	prevFocus = num;
 };
-function loadOBJ(ofile,materials){
+function loadOBJ(ofile,materials,objid){
 	var onProgress = function ( xhr ) {
 		if ( xhr.lengthComputable ) {
 			var lp = xhr.loaded / xhr.total * 100;
@@ -468,12 +469,12 @@ function loadOBJ(ofile,materials){
 	}
 	objLoader.load( ofile, function ( objects ) {
 		scene.add( objects );
-		if(id_to_obj[file_to_id[ofile]] != null){
-			hideModel(file_to_id[ofile]);
+		if(id_to_obj[file_to_id[objid]] != null){
+			hideModel(file_to_id[objid]);
 		}
-		id_to_obj[file_to_id[ofile]] = objects;
+		id_to_obj[file_to_id[objid]] = objects;
 		
-		fileLoaded[ofile] = "loaded";
+		fileLoaded[objid] = "loaded";
 		
 		targetMesh = objects;
 		
@@ -483,7 +484,7 @@ function loadOBJ(ofile,materials){
 			objects.children[ii].receiveShadow = true;
 			objects.children[ii].castShadow = true;
 		}
-		setCenter(file_to_id[ofile]);
+		setCenter(file_to_id[objid]);
 		document.getElementById("messagediv").innerHTML = "Loaded";
 	}, onProgress, onError );
 }
@@ -495,16 +496,9 @@ function make_trtd(cchild){
 	trr.appendChild(tdd);
 	return trr;
 }
-function loadPolygons(ofile,mfile){
-	if(ofile in fileLoaded){
-		if(fileLoaded[ofile] == "loaded"){
-			hideModel(file_to_id[ofile]);
-		}else{
-			return;
-		}
-	}
-	fileLoaded[ofile] = "loading";
-	file_to_id[ofile] = sid++;
+
+
+function generateActionButtons(filename,objid){
 	let btable = document.createElement("table");
 	btable.style["width"] = "300px";
 
@@ -514,8 +508,13 @@ function loadPolygons(ofile,mfile){
 	->OK 左につけた
 	 
 	ProcCommand で処理させる
+	->OK
 	Transparent はクリック毎に調整する
+	->OK
+
 	Remove をつける
+	->OK
+
 	スクリーン（Scene）を
 	1	2
 	3	4
@@ -528,7 +527,7 @@ function loadPolygons(ofile,mfile){
 	名前を短く
 	*/
 	let bdiv = document.createElement("div");
-	bdiv.innerHTML = ofile.split(/.*[\/\\]/).join('');
+	bdiv.innerHTML = filename.split(/.*[\/\\]/).join('');
 	btable.appendChild(make_trtd(bdiv));
 
 	let showbutton=document.createElement("button");
@@ -537,11 +536,11 @@ function loadPolygons(ofile,mfile){
 	showbutton.model_VisibilityState = true;
 	showbutton.addEventListener("click",function(){
 		if(showbutton.model_VisibilityState){
-			processCommand("func:hide_model;params:filename:"+ofile);
+			processCommand("func:hide_model;params:filename:"+objid);
 			showbutton.model_VisibilityState = false;
 			showbutton.innerHTML = "Show";
 		}else{
-			processCommand("func:show_model;params:filename:"+ofile);
+			processCommand("func:show_model;params:filename:"+objid);
 			showbutton.model_VisibilityState = true;
 			showbutton.innerHTML = "Hide";
 
@@ -551,22 +550,46 @@ function loadPolygons(ofile,mfile){
 	btable.appendChild(make_trtd(showbutton));
 
 	let transparent=document.createElement("button");
-	transparent.innerHTML = "Transparent";
+	transparent.innerHTML = "Change Opacity";
 	transparent.style["width"]  = "100%";
-	transparent.trans_ratio = 1.0;
+	transparent.trans_ratio = 10;
 	transparent.addEventListener("click",function(){
-		transparent.trans_ratio -= 0.1;
-		if(transparent.trans_ratio < 0.0){
-			transparent.trans_ratio = 1.0;
+		transparent.trans_ratio -= 1;
+		if(transparent.trans_ratio < 0){
+			transparent.trans_ratio = 10;
 		}
-		processCommand("func:change_transparency;params:filename:"+ofile+",ratio:"+transparent.trans_ratio.toString());
+		processCommand("func:change_transparency;params:filename:"+objid+",ratio:"+(transparent.trans_ratio/10.0).toString());
 	});
 	btable.appendChild(make_trtd(transparent));
 
-
+		
+	let removebutton=document.createElement("button");
+	removebutton.innerHTML = "Remove";
+	removebutton.style["width"]  = "100%";
+	removebutton.addEventListener("click",function(){
+		processCommand("func:remove_polygon;params:filename:"+objid);
+		let sselectordiv = document.getElementById("selector_div");
+		selectordiv.removeChild(btable);
+	
+	});
+	btable.appendChild(make_trtd(removebutton));
+	
 	let selectordiv = document.getElementById("selector_div");
 	selectordiv.appendChild(btable);
 	
+}
+function loadOBJandMTL(ofile,mfile,objid){
+	if(objid in fileLoaded){
+		if(fileLoaded[objid] == "loaded"){
+			hideModel(file_to_id[objid]);
+		}else{
+			return;
+		}
+	}
+	fileLoaded[objid] = "loading";
+	file_to_id[objid] = sid++;
+	generateActionButtons(ofile,objid);
+
 	try {
 		if(mfile != null){
 			fs.statSync(mfile);
@@ -581,14 +604,14 @@ function loadPolygons(ofile,mfile){
 			//http://threejs.org/examples/webgl_loader_obj.html
 			mtlLoader.load( mfile, function( materials ) {
 				materials.preload();
-				loadOBJ(ofile,materials);
+				loadOBJ(ofile,materials,objid);
 			});
 			return;
 		}
 	} catch(err) {
 		document.getElementById("messagediv2").innerHTML = "<b>"+mfile+" does not exist.</b>";
 	}
-	loadOBJ(ofile,null);
+	loadOBJ(ofile,null,objid);
 }
 function clearAllModels(){
 	for(ii in id_to_obj){
@@ -599,17 +622,18 @@ function clearAllModels(){
 	fileLoaded = {};
 	
 }
-function loadSTL(stlfile){
-	if(stlfile in fileLoaded){
-		if(fileLoaded[stlfile] == "loaded"){
-			hideModel(file_to_id[stlfile]);
+function loadSTL(stlfile,objid){
+	if(objid in fileLoaded){
+		if(fileLoaded[objid] == "loaded"){
+			hideModel(file_to_id[objid]);
 		}else{
 			return;
 		}
 	}
-	file_to_id[stlfile] = sid++;
+	file_to_id[objid] = sid++;
+	fileLoaded[objid] = "loading";
 	
-	fileLoaded[stlfile] = "loading";
+	generateActionButtons(stlfile,objid);
 	var onProgress = function ( xhr ) {
 		if ( xhr.lengthComputable ) {
 			var lp = xhr.loaded / xhr.total * 100;
@@ -628,15 +652,14 @@ function loadSTL(stlfile){
 			let mat = new THREE.MeshLambertMaterial( { color: 0xffffff} );
 		    let mesh = new THREE.Mesh( objects, mat );  
 			scene.add( mesh );
-			if(id_to_obj[file_to_id[stlfile]] != null){
-				hideModel(file_to_id[stlfile]);
+			if(id_to_obj[file_to_id[objid]] != null){
+				hideModel(file_to_id[objid]);
 			}
-			id_to_obj[file_to_id[stlfile]] = mesh;
-			fileLoaded[stlfile] = "loaded";
-			mesh = mesh;
+			id_to_obj[file_to_id[objid]] = mesh;
+			fileLoaded[objid] = "loaded";
 			mesh.castShadow = true;
 			mesh.receiveShadow = true;
-			setCenter(file_to_id[stlfile]);
+			setCenter(file_to_id[objid]);
 			document.getElementById("messagediv").innerHTML = "Loaded";
 		}, onProgress, onError 
 	);
@@ -763,9 +786,9 @@ function processCommand(str){
 		switch(valmap["func"]){
 			case "load_polygons":
 				if("obj" in paramvalmap){
-					loadPolygons(paramvalmap["obj"],paramvalmap["mtl"]);
+					loadOBJandMTL(paramvalmap["obj"],paramvalmap["mtl"],paramvalmap["obj"]+"?"+Date.now().toString());
 				}else if("stl" in paramvalmap){
-					loadSTL(paramvalmap["stl"]);
+					loadSTL(paramvalmap["stl"],paramvalmap["stl"]+"?"+Date.now().toString());
 				}else{
 					console.log(stl);
 					console.log("command should have obj or stl.");
@@ -774,6 +797,15 @@ function processCommand(str){
 				}
 			break;
 			
+			case "remove_polygon":
+				{
+					let fname = paramvalmap["filename"];
+					scene.remove(id_to_obj[file_to_id[fname]]);
+					delete(id_to_obj[file_to_id[fname]]);
+					delete(file_to_id[fname]);
+				}
+			break;
+
 			case "brighten_ambient_light":
 				ambientLight.intensity += 0.2;
 			break;
@@ -783,7 +815,7 @@ function processCommand(str){
 			break;
 			
 			case "change_transparency":
-				transModel(file_to_id[paramvalmap["filename"]],parseFloat(paramvalmap["ratio"]));
+				setObjectOpacity(file_to_id[paramvalmap["filename"]],parseFloat(paramvalmap["ratio"]));
 			break;
 			
 			case "hide_model":
@@ -803,6 +835,7 @@ function processCommand(str){
 				camera.aspect = SCREEN_WIDTH/(1.0*SCREEN_HEIGHT);
 				camera.updateProjectionMatrix();
 			break;
+			
 			
 			case "remove_point_light":
 				{
@@ -1152,7 +1185,7 @@ function checkLoading(){
 				return -1;
 			}
 		}else{
-			loadPolygons(loadingFiles[ii].obj,loadingFiles[ii].mtl);
+			loadOBJandMTL(loadingFiles[ii].obj,loadingFiles[ii].mtl);
 			return -1;
 		}
 	}
@@ -1246,11 +1279,19 @@ function cameraRotate(rx,ry){
 
 
 
-function transModel(num,opac){
+function setObjectOpacity(num,opac){
 	if(id_to_obj[num]){
 		scene.remove(id_to_obj[num]);
 		scene.add(id_to_obj[num]);
 		var oo = id_to_obj[num];
+		if(oo.material){
+			if(opac < 1.0){
+				oo.material.transparent = true;
+			}else{
+				oo.material.transparent = false;
+			}
+			oo.material.opacity = opac;
+		}
 		for(var jj = 0;jj < oo.children.length;jj++){
 			var o = oo.children[jj];
 			if(opac < 1.0){
