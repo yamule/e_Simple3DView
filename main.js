@@ -8,18 +8,28 @@ let mainWindow;
 //electron-packager --overwrite ./src e_Simple3DView --platform=win32 --arch=x64 --electron-version=5.0.6
 const template = [
   {
-      label: 'Object',
-      submenu: [
-          {
-              label: 'Load',
-              click () { mainWindow.webContents.send("load_files",["test"]); }
-          },
-          {
-              label: 'Clear',
-              click () { mainWindow.webContents.send("clear_objects");}
+    label: 'Object',
+    submenu: [
+        {
+            label: 'Load',
+            click () { mainWindow.webContents.send("load_files",["test"]); }
+        },
+        {
+            label: 'Clear',
+            click () { mainWindow.webContents.send("clear_objects");}
+        }
+    ]
+},{
+  label: 'Help',
+  submenu: [
+      {
+          label: 'DevTools',
+          click () { 
+            mainWindow.webContents.openDevTools();
           }
-      ]
-  }
+      }
+  ]
+},
 ]
 
 const menu = Menu.buildFromTemplate(template);
@@ -33,7 +43,6 @@ function createWindow() {
     height: store.get('window.height', 600),
   });
   mainWindow.loadFile("src/loader_test.html");
-  mainWindow.webContents.openDevTools();
   mainWindow.on("close", () => {
     let bb = mainWindow.getBounds();
     store.set({
