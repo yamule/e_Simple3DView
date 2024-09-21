@@ -4,33 +4,15 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" 
+content="script-src 'self' 'unsafe-inline';" />
 <title>e_Simple3DView</title>
 <script src="./modules/three.js"></script>
 <script src="./modules/OBJLoader.js"></script>
 <script src="./modules/MTLLoader.js"></script>
 <script src="./modules/STLLoader.js"></script>
+<script src="./renderer.js"></script>
 <script>
-const fs = require('fs');
-const path = require('path');
-const ipcRenderer = require('electron').ipcRenderer;
-const dialog = require('electron').remote.dialog;
-ipcRenderer.on('load_files', (event, arg) => {
-	let filenames = dialog.showOpenDialog(null, {
-		properties: ['openFile','multiSelections'],
-		title: 'Load 3D object',
-		defaultPath: '.',
-		filters: [
-			{name: 'obj,mtl,stl', extensions: ['obj','mtl','stl']}
-		]
-	});
-	if(filenames){
-		loadFiles(filenames);
-	}else{
-		//console.log("none");
-	}
-});
-ipcRenderer.on('clear_objects', (event, arg) => {processCommand("func:clear_all_models;");});
-
 
 
 
@@ -104,29 +86,9 @@ var sid = 0;
 var centerPos_orig = {};
 var cameraPos_orig = {};
 
-function getMTLPath(objfile){
-	let data = fs.readFileSync(objfile, 'utf8').toString().split(/[\r\n]+/);
-	for(let ii = 0;ii < data.length;ii++){
-		if(data[ii].match(/mtllib[\s]+(.+)$/)){
-			let mbasedir = path.dirname(objfile);
-			return RegExp.$1;
-		}
-	}
-	return "";
-}
-function resourceIsAbsolute(mtlfile){
-	let data = fs.readFileSync(mtlfile, 'utf8').toString().split(/[\r\n]+/);
-	for(let ii = 0;ii < data.length;ii++){
-		if(data[ii].match(/map_[^\s]+[\s]+(.+)$/)){
-			let fname = RegExp.$1;
-			if(path.isAbsolute(fname)){
-				return true;
-			}else{
-				return false;
-			}
-		}
-	}
-	return false;
+
+function loadFiles_electron(filelist_){
+	loadFiles(filelist_.split(";"));
 }
 
 function loadFiles(filelist){
@@ -187,19 +149,26 @@ function loadFiles(filelist){
 	}
 }
 function initPage(){
+	/*
 	document.ondragover = document.ondrop = function(e) {
       e.preventDefault(); 
       return false;
 	};
-	document.body.addEventListener('drop', function (e) {
-	//console.log('file dropped:', e.dataTransfer.files[0]);
-		let filepathlist = [];
-		for(let ii = 0;ii < e.dataTransfer.files.length;ii++){
-			filepathlist.push(e.dataTransfer.files[ii].path);
-		}
-		loadFiles(filepathlist);
-	});
+	document.addEventListener('drop', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
 
+    let pathArr = [];
+    for (const f of event.dataTransfer.files) {
+        // Using the path attribute to get absolute file path
+        console.log('File Path of dragged files: ', f.path)
+        pathArr.push(f.path); // assemble array for main.js
+    }
+    console.log(pathArr);
+    //const ret = ipcRenderer.sendSync('dropped-file', pathArr);
+    console.log(ret);
+});
+	*/
 	
 	scene.add(pointLight_preview);
 	scene.add(directionalLight_preview);
@@ -592,15 +561,16 @@ function loadOBJandMTL(ofile,mfile,objid){
 
 	try {
 		if(mfile != null){
-			fs.statSync(mfile);
 			var mtlLoader = new THREE.MTLLoader();
 			//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
 			mfile = mfile.replace(/\\/g,"/");
-
-			if(resourceIsAbsolute(mfile)){
+			
+			//ToDo: Windows, Linux の判断
+			if(mfile.match(/^\// || mfile.match(/^.:\//))){
 				mtlLoader.setResourcePath("");
 				mtlLoader.setPath("");
 			}
+
 			//http://threejs.org/examples/webgl_loader_obj.html
 			mtlLoader.load( mfile, function( materials ) {
 				materials.preload();
@@ -609,6 +579,7 @@ function loadOBJandMTL(ofile,mfile,objid){
 			return;
 		}
 	} catch(err) {
+		console.log(err);
 		document.getElementById("messagediv2").innerHTML = "<b>"+mfile+" does not exist.</b>";
 	}
 	loadOBJ(ofile,null,objid);

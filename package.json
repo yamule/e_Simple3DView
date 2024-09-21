@@ -4,10 +4,11 @@
   "description": "Simple 3D Object Viewer",
   "main": "main.js",
   "dependencies": {
-    "electron-packager": "^14.0.5",
-    "electron-store": "^5.1.1"
+    "electron-store": "^5.2.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "electron-packager": "^17.1.2"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
