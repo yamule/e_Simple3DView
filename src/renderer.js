@@ -6,11 +6,13 @@ document.addEventListener('dragover', (e) => {
 document.addEventListener('drop', function (e) {
     e.preventDefault();
     e.stopPropagation();
-//console.log('file dropped:', e.dataTransfer.files[0]);
     let filepathlist = [];
     for(let ii = 0;ii < e.dataTransfer.files.length;ii++){
         filepathlist.push(webUtils.getPathForFile(e.dataTransfer.files[ii]));
     }
-    console.log(filepathlist);
-    ipcRenderer.send("load_file",filepathlist);
+    //console.log(filepathlist);
+    ipcRenderer.send("fileDropped",filepathlist);
 });
+
+ipcRenderer.on("loadFiles",(e,files) => {loadFiles(files);});
+ipcRenderer.on("clearAllModels",()=>{processCommand("func:clear_all_models;");});

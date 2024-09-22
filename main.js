@@ -9,7 +9,7 @@ let mainWindow;
 //electron-packager --overwrite ./src e_Simple3DView --platform=win32 --arch=x64 --electron-version=5.0.6
 
 
-function loadFiles(filePaths_){
+function sendFilePaths(filePaths_){
   let mtl = null;
   let obj = null;
   let stl = null;
@@ -50,9 +50,8 @@ function loadFiles(filePaths_){
     }
     console.log(mtl);
   }
-  mainWindow.webContents.executeJavaScript(
-    "loadFiles_electron(\""+filepaths.join(";").replaceAll("\\","/")+"\");"
-  );
+
+  mainWindow.webContents.send("loadFiles",filepaths);
 }
 const template = [
   {
@@ -71,7 +70,7 @@ const template = [
               }).then(selectedfiles => {
                 console.log(selectedfiles);
               if(!selectedfiles.canceled){
-                loadFiles(selectedfiles.filePaths);
+                sendFilePaths(selectedfiles.filePaths);
               }else{
                 //console.log("none");
               }
@@ -80,10 +79,8 @@ const template = [
         },
         {
             label: 'Clear',
-            click () { 
-                mainWindow.webContents.executeJavaScript(
-                  "processCommand(\"func:clear_all_models;\")"
-                );
+            click () {
+              mainWindow.webContents.send("clearAllModels");
             }
         }
     ]
@@ -172,5 +169,5 @@ function resourceIsAbsolute(mtlfile){
 }
 
 ipcMain.on(
-  "load_file",(event,files)=>{loadFiles(files);}
+  "fileDropped",(event,files)=>{sendFilePaths(files);}
 );
