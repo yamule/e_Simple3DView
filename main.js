@@ -48,7 +48,7 @@ function sendFilePaths(filePaths_){
         filepaths.push(mtl);
       }
     }
-    console.log(mtl);
+    //console.log(mtl);
   }
 
   mainWindow.webContents.send("loadFiles",filepaths);
@@ -68,7 +68,7 @@ const template = [
                   {name: 'obj,mtl,stl', extensions: ['obj','mtl','stl']}
                 ]
               }).then(selectedfiles => {
-                console.log(selectedfiles);
+                //console.log(selectedfiles);
               if(!selectedfiles.canceled){
                 sendFilePaths(selectedfiles.filePaths);
               }else{
@@ -152,21 +152,6 @@ function getMTLPath(objfile){
 	return "";
 }
 
-function resourceIsAbsolute(mtlfile){
-	let data = fs.readFileSync(mtlfile, 'utf8').toString().split(/[\r\n]+/);
-	for(let ii = 0;ii < data.length;ii++){
-    let mmat = data[ii].match(/map_[^\s]+[\s]+(.+)$/)
-		if(mmat){
-			let fname = mmat[1];
-			if(path.isAbsolute(fname)){
-				return true;
-			}else{
-				return false;
-			}
-		}
-	}
-	return false;
-}
 
 ipcMain.on(
   "fileDropped",(event,files)=>{sendFilePaths(files);}

@@ -114,6 +114,7 @@ function loadFiles(filelist){
 			}
 		}
 
+		/* 多分使わない
 		if(obj != null && mtl == null){
 			mtl = getMTLPath(obj);
 			if(mtl.length == 0){
@@ -126,6 +127,7 @@ function loadFiles(filelist){
 			}
 			console.log(mtl);
 		}
+		*/
 		
 		if(obj != null){
 			//let mbasedir = path.dirname(mtl);
@@ -145,26 +147,6 @@ function loadFiles(filelist){
 	}
 }
 function initPage(){
-	/*
-	document.ondragover = document.ondrop = function(e) {
-      e.preventDefault(); 
-      return false;
-	};
-	document.addEventListener('drop', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    let pathArr = [];
-    for (const f of event.dataTransfer.files) {
-        // Using the path attribute to get absolute file path
-        console.log('File Path of dragged files: ', f.path)
-        pathArr.push(f.path); // assemble array for main.js
-    }
-    console.log(pathArr);
-    //const ret = ipcRenderer.sendSync('dropped-file', pathArr);
-    console.log(ret);
-});
-	*/
 	
 	scene.add(pointLight_preview);
 	scene.add(directionalLight_preview);
@@ -469,17 +451,6 @@ function generateActionButtons(filename,objid){
 
 	/*
 	ここから
-	SCREEN の右につける
-	->OK 左につけた
-	 
-	ProcCommand で処理させる
-	->OK
-	Transparent はクリック毎に調整する
-	->OK
-
-	Remove をつける
-	->OK
-
 	スクリーン（Scene）を
 	1	2
 	3	4
@@ -561,10 +532,16 @@ function loadOBJandMTL(ofile,mfile,objid){
 			//どこまでがディレクトリかと言うのはスラッシュで判断されているようだ。
 			mfile = mfile.replace(/\\/g,"/");
 			
-			//ToDo: Windows, Linux の判断
-			if(mfile.match(/^\// || mfile.match(/^.:\//))){
-				mtlLoader.setResourcePath("");
-				mtlLoader.setPath("");
+			if(typeof pathIsAbsolute === 'undefined'){
+				if(mfile.match(/^\// || mfile.match(/^.:\//))){
+					mtlLoader.setResourcePath("");
+					mtlLoader.setPath("");
+				}
+			}else{
+				if(pathIsAbsolute(mfile)){
+					mtlLoader.setResourcePath("");
+					mtlLoader.setPath("");
+				}
 			}
 
 			//http://threejs.org/examples/webgl_loader_obj.html
